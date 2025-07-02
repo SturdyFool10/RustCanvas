@@ -1,0 +1,9 @@
+[package]
+name = "prettylogs"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tracing.workspace = true
+tracing-subscriber.workspace = true
+chrono = "0.4"

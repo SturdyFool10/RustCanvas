@@ -1,0 +1,73 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+default-members = ["crates/rustcanvas"]
+
+
+[workspace.dependencies]
+axum = { version = "0.8.4", features = ["tokio", "tracing", "ws", "http2", "original-uri"] }
+tracing-subscriber = { version = "0.3.19", features = ["fmt", "env-filter"] }
+tokio = { version = "1.45.1", features = ["full"] }
+raw-cpuid = { version = "11.5.0", features = ["display"] }
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = { version = "1.0.140" }
+toml = { version = "0.8.23" }
+rusqlite = { version = "0.36.0", features = ["bundled"] }
+tracing = { version = "0.1.41" }
+futures = "0.3.31"
+axum-extra = { version = "0.10.1"}
+prost = { version = "0.12" }
+prost-build = { version = "0.12" }
+bytes = { version = "1.5" }
+#internal dependencies
+appstate = { path = "crates/appstate" }
+db = { path = "crates/db" }
+macros = { path = "crates/macros" }
+webserver = { path = "crates/webserver" }
+config = { path = "crates/config" }
+utils = { path = "crates/utils" }
+prettylogs = { path = "crates/prettylogs" }
+protocol = { path = "crates/protocol" }
+
+# Force all non-workspace crates to compile with release optimization settings
+[profile.dev.package."*"]
+opt-level = 3
+debug = false
+debug-assertions = false
+overflow-checks = false
+incremental = true
+codegen-units = 16
+
+# Ultra-optimized release profile for absolute maximum performance
+[profile.release]
+opt-level = 3            # Maximum optimization
+codegen-units = 1        # Optimize for size and performance by maximizing LLVM optimizations
+lto = "fat"              # Enable Link Time Optimization at the most aggressive setting
+panic = "abort"          # Remove unwinding code on panic for smaller binaries
+strip = true             # Strip symbols from binary
+debug = false            # No debug symbols
+debug-assertions = false # No debug assertions
+overflow-checks = false  # No overflow checks
+incremental = false      # Disable incremental compilation
+
+# [profile.AVX2]
+# inherits = "release"     # Inherit settings from the release profile
+# rustflags = [
+#     "-C", "target-feature=+avx2,+fma,+bmi,+bmi2,+popcnt,+sse,+sse2,+sse3,+ssse3,+sse4.1,+sse4.2"
+# ]
+
+# [profile.AVX512]
+# inherits = "release"
+# rustflags = [
+#     "-C", "target-feature=+avx512f,+avx512bw,+avx512cd,+avx512dq,+avx512vl,+avx2,+fma,+bmi,+bmi2,+popcnt,+sse,+sse2,+sse3,+ssse3,+sse4.1,+sse4.2"
+# ]
+
+# Additional performance tuning
+[profile.release.build-override]
+opt-level = 3
+codegen-units = 1
+
+# Optimize all dependencies with the same settings
+[profile.release.package."*"]
+opt-level = 3
+codegen-units = 1

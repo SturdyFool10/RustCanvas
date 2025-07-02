@@ -1,0 +1,17 @@
+[package]
+name = "protocol"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = []
+js-export = []
+
+[dependencies]
+prost.workspace = true
+bytes.workspace = true
+serde.workspace = true
+tokio.workspace = true
+
+[build-dependencies]
+prost-build.workspace = true

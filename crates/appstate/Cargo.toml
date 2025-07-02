@@ -1,0 +1,10 @@
+[package]
+name = "appstate"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+config.workspace = true
+tokio.workspace = true
+db.workspace = true
+axum.workspace = true

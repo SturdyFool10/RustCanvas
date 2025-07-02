@@ -1,0 +1,5 @@
+{
+  "devDependencies": {
+    "protoc-gen-js": "^3.21.4-4"
+  }
+}

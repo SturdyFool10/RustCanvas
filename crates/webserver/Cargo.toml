@@ -1,0 +1,12 @@
+[package]
+name = "webserver"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tokio.workspace = true
+tracing.workspace = true
+axum.workspace = true
+axum-extra.workspace = true
+appstate.workspace = true
+futures.workspace = true

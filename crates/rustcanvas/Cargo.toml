@@ -1,0 +1,17 @@
+[package]
+name = "rustcanvas"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+config.workspace = true
+appstate.workspace = true
+tokio.workspace = true
+webserver.workspace = true
+axum.workspace = true
+db.workspace = true
+macros.workspace = true
+raw-cpuid.workspace = true
+prettylogs.workspace = true
+tracing.workspace = true
+futures.workspace = true

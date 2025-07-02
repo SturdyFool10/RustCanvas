@@ -1,0 +1,7 @@
+syntax = "proto3";
+
+package rustcanvas;
+
+message TestMessage {
+  string message = 1;
+}
