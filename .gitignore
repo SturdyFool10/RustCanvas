@@ -1,0 +1,22 @@
+# Editor directories and files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+/.zed/
+.vim/
+.emacs.d/
+.atom/
+.brackets.json
+.project
+.settings/
+.classpath
+package-lock.json
+/target/
+crates/protocol/src/generated
+crates/webserver/src/htmlsrc/proto-client.js
+Cargo.lock
+config.json
