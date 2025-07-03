@@ -54,6 +54,59 @@ pub mod helpers {
     }
 }
 
+/// Detects the message type from a binary blob using a protobuf descriptor file or bytes.
+///
+/// This function reads a compiled FileDescriptorSet from the given path,
+/// builds a descriptor pool, and attempts to decode the provided blob
+/// against each message type in the pool.
+///
+/// # Arguments
+/// * `blob` - The binary data to decode
+/// * `descriptor_bytes` - The bytes of the compiled protobuf descriptor set
+///
+/// # Returns
+/// * `Some(String)` - The full name of the first message type that successfully decodes
+/// * `None` - If no message types can decode the blob
+///
+/// # Example
+/// ```no_run
+/// use protocol::get_proto_type;
+/// let descriptor_bytes = include_bytes!("descriptor_set.bin");
+/// let blob = b"\x08\x96\x01\x12\x04test";
+/// if let Some(message_type) = get_proto_type(blob, descriptor_bytes) {
+///     println!("Detected message type: {}", message_type);
+/// }
+/// ```
+pub fn get_proto_type(blob: &[u8], descriptor_bytes: &[u8]) -> Option<String> {
+    use prost::Message;
+    use prost_reflect::bytes::Bytes;
+    use prost_reflect::{DescriptorPool, DynamicMessage};
+    use prost_types::FileDescriptorSet;
+
+    let file_descriptor_set = FileDescriptorSet::decode(descriptor_bytes).ok()?;
+    let pool = DescriptorPool::from_file_descriptor_set(file_descriptor_set).ok()?;
+
+    for descriptor in pool.all_messages() {
+        let full_name = descriptor.full_name().to_string();
+        if DynamicMessage::decode(descriptor, Bytes::from(blob.to_vec())).is_ok() {
+            return Some(full_name);
+        }
+    }
+    None
+}
+
+/// Legacy: Detects the message type from a binary blob using a protobuf descriptor file path.
+/// This is kept for compatibility, but prefer `get_proto_type` for new code.
+pub fn detect_message_type(
+    blob: &[u8],
+    descriptor_path: &std::path::Path,
+) -> Result<String, Box<dyn std::error::Error>> {
+    use std::fs;
+    let descriptor_bytes = fs::read(descriptor_path)?;
+    get_proto_type(blob, &descriptor_bytes)
+        .ok_or_else(|| "No message type could decode the provided blob".into())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -90,5 +143,24 @@ mod tests {
 
         // Compare
         assert_eq!(original.message, decoded.message);
+    }
+
+    #[test]
+    fn test_detect_message_type_function_exists() {
+        // This test verifies that the detect_message_type function compiles
+        // In a real test, you would need a valid descriptor file and blob
+        use std::path::Path;
+
+        let result = super::detect_message_type(b"invalid_blob", Path::new("nonexistent.desc"));
+        // The function should return an error for invalid input
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_get_proto_type_function_exists() {
+        // This test verifies that get_proto_type function compiles and returns None for invalid input
+        let descriptor_bytes = b"not_a_real_descriptor";
+        let result = super::get_proto_type(b"invalid_blob", descriptor_bytes);
+        assert!(result.is_none());
     }
 }

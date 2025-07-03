@@ -5,3 +5,8 @@ package rustcanvas;
 message TestMessage {
   string message = 1;
 }
+
+message TestMessage2 {
+  string message = 1;
+  int64 id = 2;
+}

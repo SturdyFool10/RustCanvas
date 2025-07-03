@@ -18,6 +18,8 @@ futures = "0.3.31"
 axum-extra = { version = "0.10.1"}
 prost = { version = "0.12" }
 prost-build = { version = "0.12" }
+prost-types = { version = "0.12" }
+prost-reflect = { version = "0.12" }
 bytes = { version = "1.5" }
 #internal dependencies
 appstate = { path = "crates/appstate" }

@@ -17,18 +17,31 @@ use std::io::{self, Read};
 ///
 /// # Examples
 ///
-/// ```
+
+/// ```no_run
+
 /// use utils::input::choice;
+
 ///
+
 /// // Wait for user to press Y, N, or Escape
+
 /// let result = choice("YNy\x1B", false, Some("Continue? [Y/N] "));
+
 /// match result {
+
 ///     'Y' | 'y' => println!("User chose Yes"),
+
 ///     'N' | 'n' => println!("User chose No"),
+
 ///     '\x1B' => println!("User pressed Escape"),
+
 ///     _ => unreachable!(),
+
 /// }
+
 /// ```
+
 pub fn choice(choices: &str, case_sensitive: bool, prompt: Option<&str>) -> char {
     // Print prompt if provided
     if let Some(text) = prompt {

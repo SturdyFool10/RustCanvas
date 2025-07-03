@@ -20,3 +20,6 @@ crates/protocol/src/generated
 crates/webserver/src/htmlsrc/proto-client.js
 Cargo.lock
 config.json
+node_modules/
+database.db
+crates/protocol/src/descriptor_set.bin

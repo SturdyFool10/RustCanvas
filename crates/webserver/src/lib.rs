@@ -1,13 +1,16 @@
 #![allow(unused_imports)]
 use appstate::{AppState, ConnectionId, MessageSender};
 use axum::Router;
-use axum::body::Bytes;
+
 use axum::extract::Path;
 use axum::extract::ws::{Message, WebSocketUpgrade};
 use axum::response::Html;
 use axum::routing::{get, post};
 use axum_extra::response::*;
 use futures::{Future, SinkExt, StreamExt};
+use prost::Message as _;
+use prost_reflect::bytes::Bytes;
+use protocol::detect_message_type;
 use std::time::{Duration, Instant};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
@@ -271,10 +274,26 @@ async fn process_incoming_messages(
             Ok(Message::Binary(data)) => {
                 // Binary messages just get logged - actual handling elsewhere
                 trace!(
-                    "Connection {}: Received binary data of size: {} bytes",
+                    "Connection {}: Received binary data of size: {} bytes: \n\t{:02X?}",
                     conn_id,
-                    data.len()
+                    data.len(),
+                    &data
                 );
+                // --- Type detection debug ---
+                // Use the descriptor set embedded at compile time
+                let descriptor_bytes = include_bytes!("../../protocol/src/descriptor_set.bin");
+                if let Some(message_type) = protocol::get_proto_type(&data, descriptor_bytes) {
+                    debug!(
+                        "Connection {}: Detected protobuf message type: {}",
+                        conn_id, message_type
+                    );
+                } else {
+                    debug!(
+                        "Connection {}: Failed to detect protobuf message type: No message type could decode the provided blob",
+                        conn_id
+                    );
+                }
+                // --- End type detection debug ---
             }
             Ok(Message::Close(_)) => {
                 debug!("Connection {}: Client initiated close", conn_id);

@@ -1,45 +1,66 @@
 //! build.rs
 //! Build script to generate Rust and JavaScript code from Protocol Buffers definitions
 
+use prost_reflect::prost::Message as ProstMessage;
 use std::env;
 use std::fs;
-use std::path::Path;
+use std::path::Path; // Needed for FileDescriptorSet::decode
 
 fn main() {
     // Tell Cargo to rerun this build script if any .proto files change
     println!("cargo:rerun-if-changed=proto/");
 
-    let proto_file = "proto/messages.proto";
+    // Whitelist of proto files for runtime (ONLY these will be included in Rust/JS/descriptor set)
+    const RUNTIME_PROTOS: &[&str] = &["proto/messages.proto"];
 
-    // Generate Rust code
-    generate_rust_code(proto_file);
+    // Generate Rust code and descriptor set for runtime protos only
+    generate_rust_code_and_descriptor(RUNTIME_PROTOS);
 
-    // Generate JavaScript code
-    generate_javascript_code(proto_file);
+    // Generate JavaScript code using the descriptor set
+    let descriptor_path = std::path::Path::new("src/descriptor_set.bin");
+    if let Ok(descriptor_bytes) = std::fs::read(descriptor_path) {
+        let js_code = generate_protobuf_client_code(&descriptor_bytes);
+        let js_target = std::path::Path::new("../webserver/src/htmlsrc/proto-client.js");
+        if let Err(e) = std::fs::write(js_target, js_code) {
+            println!("cargo:warning=Failed to write JS client: {}", e);
+        } else {
+            println!(
+                "cargo:warning=Successfully generated JavaScript client at {:?}",
+                js_target
+            );
+        }
+    } else {
+        println!("cargo:warning=Could not read descriptor set for JS codegen");
+    }
 }
 
-fn generate_rust_code(proto_file: &str) {
-    println!("cargo:warning=Generating Rust code from {}", proto_file);
+fn generate_rust_code_and_descriptor(proto_files: &[&str]) {
+    println!(
+        "cargo:warning=Generating Rust code and descriptor set from {:?}",
+        proto_files
+    );
 
-    // Check if proto file exists and is not empty
-    match fs::metadata(proto_file) {
-        Ok(metadata) => {
-            if metadata.len() == 0 {
+    // Check if all proto files exist and are not empty
+    for proto_file in proto_files {
+        match fs::metadata(proto_file) {
+            Ok(metadata) => {
+                if metadata.len() == 0 {
+                    println!(
+                        "cargo:warning=Proto file {} is empty, creating placeholder",
+                        proto_file
+                    );
+                    create_rust_placeholder();
+                    return;
+                }
+            }
+            Err(e) => {
                 println!(
-                    "cargo:warning=Proto file {} is empty, creating placeholder",
-                    proto_file
+                    "cargo:warning=Proto file {} not accessible: {}",
+                    proto_file, e
                 );
                 create_rust_placeholder();
                 return;
             }
-        }
-        Err(e) => {
-            println!(
-                "cargo:warning=Proto file {} not accessible: {}",
-                proto_file, e
-            );
-            create_rust_placeholder();
-            return;
         }
     }
 
@@ -50,10 +71,14 @@ fn generate_rust_code(proto_file: &str) {
     // Configure prost-build
     let mut config = prost_build::Config::new();
 
-    // Compile the proto file
-    match config.compile_protos(&[proto_file], &["proto"]) {
+    // Set the descriptor set output path
+    let descriptor_set_path = out_path.join("descriptor_set.pb");
+    config.file_descriptor_set_path(&descriptor_set_path);
+
+    // Compile all proto files
+    match config.compile_protos(proto_files, &["proto"]) {
         Ok(_) => {
-            println!("cargo:warning=Successfully compiled proto file with prost");
+            println!("cargo:warning=Successfully compiled proto files with prost");
 
             // Find the generated file and copy it to our source tree
             let mut found_generated = false;
@@ -71,6 +96,17 @@ fn generate_rust_code(proto_file: &str) {
             if !found_generated {
                 println!("cargo:warning=No generated Rust file found, creating placeholder");
                 create_rust_placeholder();
+            }
+
+            // Copy the descriptor set to a known location in the crate for runtime use
+            let crate_descriptor_path = Path::new("src/descriptor_set.bin");
+            if let Err(e) = fs::copy(&descriptor_set_path, crate_descriptor_path) {
+                println!(
+                    "cargo:warning=Failed to copy descriptor set to src/descriptor_set.bin: {}",
+                    e
+                );
+            } else {
+                println!("cargo:warning=Copied descriptor set to src/descriptor_set.bin");
             }
         }
         Err(e) => {
@@ -227,53 +263,6 @@ fn generate_javascript_code(proto_file: &str) {
         create_javascript_placeholder(&js_target);
         return;
     }
-
-    // Generate a full JavaScript client with proper protobuf support
-    println!("cargo:warning=Generating full JavaScript protobuf client");
-
-    match generate_full_js_client(proto_file, &js_target) {
-        Ok(_) => {
-            println!(
-                "cargo:warning=Successfully generated JavaScript client at {}",
-                js_target.display()
-            );
-        }
-        Err(e) => {
-            println!("cargo:warning=Failed to generate JavaScript client: {}", e);
-            create_javascript_placeholder(&js_target);
-        }
-    }
-}
-
-fn generate_full_js_client(
-    proto_file: &str,
-    target_file: &Path,
-) -> Result<(), Box<dyn std::error::Error>> {
-    // Read the proto file and extract message names
-    let proto_content = fs::read_to_string(proto_file)?;
-    let messages = extract_message_names(&proto_content);
-
-    let js_content = generate_protobuf_client_code(&messages);
-
-    fs::write(target_file, js_content)?;
-    Ok(())
-}
-
-fn extract_message_names(proto_content: &str) -> Vec<String> {
-    let mut messages = Vec::new();
-
-    for line in proto_content.lines() {
-        let line = line.trim();
-        if line.starts_with("message ") && line.contains('{') {
-            if let Some(name_part) = line.strip_prefix("message ") {
-                if let Some(name) = name_part.split_whitespace().next() {
-                    messages.push(name.to_string());
-                }
-            }
-        }
-    }
-
-    messages
 }
 
 fn create_javascript_placeholder(target_file: &Path) {
@@ -334,24 +323,52 @@ if (typeof window !== 'undefined') {
     }
 }
 
-fn generate_protobuf_client_code(messages: &[String]) -> String {
-    let message_classes = messages
-        .iter()
-        .map(|msg| generate_message_class(msg))
-        .collect::<Vec<_>>()
-        .join("\n\n");
+fn generate_protobuf_client_code(descriptor_bytes: &[u8]) -> String {
+    use prost_reflect::prost::Message as ProstMessage;
+    use prost_reflect::{DescriptorPool, FieldDescriptor, Kind, Value};
 
-    let message_registrations = messages
-        .iter()
-        .map(|msg| format!("protoClient.messageTypes['{}'] = {};", msg, msg))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let file_descriptor_set =
+        ProstMessage::decode(descriptor_bytes).expect("Failed to decode descriptor set");
+    let pool = DescriptorPool::from_file_descriptor_set(file_descriptor_set)
+        .expect("Failed to build DescriptorPool");
 
-    let window_exports = messages
-        .iter()
-        .map(|msg| format!("window.{} = {};", msg, msg))
-        .collect::<Vec<_>>()
-        .join("\n    ");
+    let mut message_classes = Vec::new();
+    let mut message_registrations = Vec::new();
+    let mut window_exports = Vec::new();
+    let mut message_names = Vec::new();
+
+    for message in pool.all_messages() {
+        let mut field_info = Vec::new();
+        for field in message.fields() {
+            let field_name = field.name().to_string();
+            let field_number = field.number();
+            let (js_type, wire_type) = match field.kind() {
+                Kind::String => ("string".to_string(), "string".to_string()),
+                Kind::Int32 | Kind::Sint32 | Kind::Sfixed32 | Kind::Enum(_) => {
+                    ("number".to_string(), "int32".to_string())
+                }
+                Kind::Int64 | Kind::Sint64 | Kind::Sfixed64 => {
+                    ("number".to_string(), "int64".to_string())
+                }
+                Kind::Uint32 | Kind::Fixed32 => ("number".to_string(), "uint32".to_string()),
+                Kind::Uint64 | Kind::Fixed64 => ("number".to_string(), "uint64".to_string()),
+                Kind::Bool => ("boolean".to_string(), "bool".to_string()),
+                // For now, treat bytes and messages as strings (could be improved)
+                Kind::Bytes => ("string".to_string(), "string".to_string()),
+                Kind::Message(_) => ("object".to_string(), "string".to_string()),
+                _ => ("string".to_string(), "string".to_string()),
+            };
+            field_info.push((field_name, field_number, js_type, wire_type));
+        }
+        message_classes.push(generate_message_class(&message, &field_info));
+        message_registrations.push(format!(
+            "protoClient.messageTypes['{}'] = {};",
+            message.name(),
+            message.name()
+        ));
+        window_exports.push(format!("window.{} = {};", message.name(), message.name()));
+        message_names.push(message.name().to_string());
+    }
 
     format!(
         r#"// DO NOT EDIT! This file was automatically generated from proto/messages.proto
@@ -360,7 +377,7 @@ console.log('Proto-client.js: Using full JavaScript protobuf client');
 
 /**
  * Full JavaScript protobuf client with binary encoding/decoding
- * Generated from proto definitions: {}
+ * Generated from proto definitions: {message_names}
  */
 
 // Protobuf wire types
@@ -395,13 +412,6 @@ class ProtobufWriter {{
             this.writeTag(fieldNumber, WIRE_TYPE_LENGTH_DELIMITED);
             this.writeVarint(utf8Bytes.length);
             this.buffer.push(...utf8Bytes);
-        }}
-    }}
-
-    writeInt32(fieldNumber, value) {{
-        if (value !== 0) {{
-            this.writeTag(fieldNumber, WIRE_TYPE_VARINT);
-            this.writeVarint(value);
         }}
     }}
 
@@ -451,11 +461,11 @@ class ProtobufReader {{
 }}
 
 // Generated message classes
-{}
+{message_classes}
 
 class ProtoClient {{
     constructor() {{
-        console.log('ProtoClient initialized with messages: {}');
+        console.log('ProtoClient initialized with messages: {message_names}');
         this.messageTypes = {{}};
     }}
 
@@ -497,62 +507,106 @@ class ProtoClient {{
 
 // Register message types
 const protoClient = new ProtoClient();
-{}
+{message_registrations}
 
 // Export for CommonJS
 if (typeof module !== 'undefined' && module.exports) {{
-    module.exports = {{ ProtoClient, protoClient, {} }};
+    module.exports = {{ ProtoClient, protoClient, {message_names} }};
 }}
 
 // Export for ES6 modules
 if (typeof window !== 'undefined') {{
     window.ProtoClient = ProtoClient;
     window.protoClient = protoClient;
-    {}
+    {window_exports}
 }}
 "#,
-        messages.join(", "),
-        message_classes,
-        messages.join(", "),
-        message_registrations,
-        messages.join(", "),
-        window_exports
+        message_names = message_names.join(", "),
+        message_classes = message_classes.join("\n\n"),
+        message_registrations = message_registrations.join("\n"),
+        window_exports = window_exports.join("\n    "),
     )
 }
 
-fn generate_message_class(message_name: &str) -> String {
-    // For now, generate a basic message class structure
-    // This could be enhanced to parse the actual proto file for field definitions
+fn generate_message_class(
+    message: &prost_reflect::MessageDescriptor,
+    field_info: &[(String, u32, String, String)],
+) -> String {
+    // field_info: Vec of (field_name, field_number, js_type, wire_type)
+    let class_name = message.name();
+    let mut ctor_lines = String::new();
+    let mut encode_lines = String::new();
+    let mut decode_cases = String::new();
+    let mut tojson_lines = String::new();
+
+    for (field_name, field_number, js_type, wire_type) in field_info {
+        ctor_lines.push_str(&format!(
+            "        this.{0} = data.{0} !== undefined ? data.{0} : {1};\n",
+            field_name,
+            match js_type.as_str() {
+                "string" => "''",
+                "number" => "0",
+                "boolean" => "false",
+                _ => "null",
+            }
+        ));
+        // Encode
+        encode_lines.push_str(&format!(
+            "        if (this.{0} !== {1}) {{ writer.{2}({3}, this.{0}); }}\n",
+            field_name,
+            match js_type.as_str() {
+                "string" => "''",
+                "number" => "0",
+                "boolean" => "false",
+                _ => "null",
+            },
+            match wire_type.as_str() {
+                "string" => "writeString",
+                "int32" | "int64" | "uint32" | "uint64" | "bool" => "writeVarint",
+                _ => "writeString", // fallback
+            },
+            field_number
+        ));
+        // Decode
+        decode_cases.push_str(&format!(
+            "                case {0}:\n                    if (tag.wireType === {1}) {{ message.{2} = reader.{3}(); }}\n                    break;\n",
+            field_number,
+            match wire_type.as_str() {
+                "string" => "WIRE_TYPE_LENGTH_DELIMITED",
+                "int32" | "int64" | "uint32" | "uint64" | "bool" => "WIRE_TYPE_VARINT",
+                _ => "WIRE_TYPE_LENGTH_DELIMITED",
+            },
+            field_name,
+            match wire_type.as_str() {
+                "string" => "readString",
+                "int32" | "int64" | "uint32" | "uint64" | "bool" => "readVarint",
+                _ => "readString",
+            }
+        ));
+        // toJSON
+        tojson_lines.push_str(&format!("            {0}: this.{0},\n", field_name));
+    }
+
     format!(
-        r#"class {} {{
+        r#"class {class_name} {{
     constructor(data = {{}}) {{
-        // Initialize with default values
-        this.message = data.message || '';
-    }}
+{ctor_lines}    }}
 
     // Encode this message to protobuf binary format
     encode() {{
         const writer = new ProtobufWriter();
-        if (this.message) {{
-            writer.writeString(1, this.message);
-        }}
-        return writer.getBytes();
+{encode_lines}        return writer.getBytes();
     }}
 
     // Decode protobuf binary data to create message instance
     static decode(buffer) {{
         const reader = new ProtobufReader(buffer);
-        const message = new {}();
+        const message = new {class_name}();
 
         while (reader.hasMore()) {{
             const tag = reader.readTag();
             switch (tag.fieldNumber) {{
-                case 1:
-                    if (tag.wireType === WIRE_TYPE_LENGTH_DELIMITED) {{
-                        message.message = reader.readString();
-                    }}
-                    break;
-                default:
+{decode_cases}                default:
                     // Skip unknown fields
                     break;
             }}
@@ -564,10 +618,9 @@ fn generate_message_class(message_name: &str) -> String {
     // Convert to JSON for debugging
     toJSON() {{
         return {{
-            message: this.message
-        }};
+{tojson_lines}        }};
     }}
-}}"#,
-        message_name, message_name
+}}
+"#
     )
 }

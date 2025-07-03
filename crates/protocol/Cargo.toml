@@ -9,9 +9,16 @@ js-export = []
 
 [dependencies]
 prost.workspace = true
+prost-types.workspace = true
+prost-reflect.workspace = true
 bytes.workspace = true
 serde.workspace = true
 tokio.workspace = true
 
 [build-dependencies]
 prost-build.workspace = true
+prost-types.workspace = true
+prost-reflect.workspace = true
+
+[dev-dependencies]
+serde_json = "1.0"
