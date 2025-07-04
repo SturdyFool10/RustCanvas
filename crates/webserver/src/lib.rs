@@ -8,9 +8,8 @@ use axum::response::Html;
 use axum::routing::{get, post};
 use axum_extra::response::*;
 use futures::{Future, SinkExt, StreamExt};
-use prost::Message as _;
-use prost_reflect::bytes::Bytes;
-use protocol::detect_message_type;
+
+use axum::body::Bytes;
 use std::time::{Duration, Instant};
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
@@ -27,7 +26,6 @@ fn get_router(state: AppState) -> axum::Router {
         .route("/", get(|| async { get_index() }))
         .route("/index.js", get(|| async { get_index_js() }))
         .route("/jquery.min.js", get(|| async { get_jquery() }))
-        .route("/proto-client.js", get(|| async { get_proto_js() }))
         .route("/stylesheet.css", get(|| async { get_stylesheet() }))
         .route(
             "/ws",
@@ -236,11 +234,7 @@ async fn send_heartbeats(state: AppState, conn_id: ConnectionId) {
 
         // Only ping if client still exists (avoid zombies)
         if let Some(sender) = state.ws_connections.get(conn_id).await {
-            if sender
-                .send(Message::Ping(Bytes::from(vec![])))
-                .await
-                .is_err()
-            {
+            if sender.send(Message::Ping(Bytes::new())).await.is_err() {
                 break;
             }
         } else {
@@ -281,18 +275,6 @@ async fn process_incoming_messages(
                 );
                 // --- Type detection debug ---
                 // Use the descriptor set embedded at compile time
-                let descriptor_bytes = include_bytes!("../../protocol/src/descriptor_set.bin");
-                if let Some(message_type) = protocol::get_proto_type(&data, descriptor_bytes) {
-                    debug!(
-                        "Connection {}: Detected protobuf message type: {}",
-                        conn_id, message_type
-                    );
-                } else {
-                    debug!(
-                        "Connection {}: Failed to detect protobuf message type: No message type could decode the provided blob",
-                        conn_id
-                    );
-                }
                 // --- End type detection debug ---
             }
             Ok(Message::Close(_)) => {
@@ -342,8 +324,4 @@ fn get_jquery() -> JavaScript<String> {
 
 fn get_stylesheet() -> Css<String> {
     include_str!("htmlsrc/stylesheet.css").to_string().into()
-}
-
-fn get_proto_js() -> JavaScript<String> {
-    include_str!("htmlsrc/proto-client.js").to_string().into()
 }
